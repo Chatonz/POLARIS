@@ -1,2 +1,2 @@
 # POLARIS
-Coming Soon～！
+Coming Soon～
