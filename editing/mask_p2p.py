@@ -15,7 +15,7 @@ from diffusers.models.attention_processor import Attention
 # 1. Arguments & Configuration
 # ======================================================================================
 def parse_args():
-    parser = argparse.ArgumentParser(description="Spatially-Aware Inversion & Generation (P2P Style)")
+    parser = argparse.ArgumentParser(description="POLARIS Spatially-Aware Inversion & Generation")
     
     # Paths & Model
     parser.add_argument("--image_path", type=str, required=True, help="Path to input image")
@@ -112,9 +112,9 @@ def register_attention_control(pipe, controller: AttentionStore):
 # 3. Core Logic: Inversion & Generation
 # ======================================================================================
 @torch.no_grad()
-def ddim_inversion_dynamic(pipe, latents, text_embeddings, steps):
+def ddim_inversion_polaris(pipe, latents, text_embeddings, steps):
     """
-    Inverts the image using Dynamic CFG (solving for omega_t).
+    Inverts the image using POLARIS CFG (solving for omega_t).
     Returns inverted latents and the list of calculated scales.
     """
     uncond = pipe.text_encoder(pipe.tokenizer("", return_tensors="pt").input_ids.to(pipe.device))[0]
@@ -125,14 +125,14 @@ def ddim_inversion_dynamic(pipe, latents, text_embeddings, steps):
     prev_ep, prev_ec = None, None
     scales = []
     
-    for t in tqdm(inv_sched.timesteps, desc="Dynamic Inversion", leave=False):
+    for t in tqdm(inv_sched.timesteps, desc="POLARIS Inversion", leave=False):
         latent_in = torch.cat([z, z], dim=0)
         embeds = torch.cat([uncond, text_embeddings], dim=0)
         
         noise_pred = pipe.unet(latent_in, t, encoder_hidden_states=embeds).sample
         ep, ec = noise_pred.chunk(2)
         
-        # Calculate dynamic scale (omega)
+        # Calculate POLARIS scale (omega)
         omega_t = 1.0
         if prev_ep is not None:
             d_ep = (ep - prev_ep).float()
@@ -177,8 +177,8 @@ def generate_spatially_aware(
     uncond = pipe.text_encoder(pipe.tokenizer("", return_tensors="pt").input_ids.to(pipe.device))[0]
     pipe.scheduler.set_timesteps(steps, device=pipe.device)
     
-    is_dynamic = isinstance(recon_scales, list)
-    desc = "Gen (Dynamic)" if is_dynamic else "Gen (Fixed)"
+    is_polaris_mode = isinstance(recon_scales, list)
+    desc = "Gen (POLARIS)" if is_polaris_mode else "Gen (Fixed)"
     
     z = latents.clone()
     
@@ -193,7 +193,7 @@ def generate_spatially_aware(
         
         # Retrieve attention maps
         attn_maps = [m for lst in controller.attention_maps.values() for m in lst]
-        current_recon_scale = recon_scales[i] if is_dynamic else recon_scales
+        current_recon_scale = recon_scales[i] if is_polaris_mode else recon_scales
 
         if not attn_maps or not edit_indices:
             # Fallback if no attention info
@@ -332,27 +332,27 @@ def main():
     img_fixed = latent2img(pipe, z_fixed_res)
     img_fixed.save(os.path.join(args.output_dir, "result_fixed.png"))
 
-    # --- Method B: Dynamic Scale (Ours) ---
-    print("\n[B] Running Dynamic Scale Inversion...")
-    z_inv_dyn, dyn_scales = ddim_inversion_dynamic(pipe, init_z, src_emb, args.steps)
+    # --- Method B: POLARIS (Ours) ---
+    print("\n[B] Running POLARIS Inversion...")
+    z_inv_polaris, polaris_scales = ddim_inversion_polaris(pipe, init_z, src_emb, args.steps)
     
     print("    Generating...")
     controller = AttentionStore()
     deregister = register_attention_control(pipe, controller)
-    z_dyn_res = generate_spatially_aware(
-        pipe, z_inv_dyn, tgt_emb, controller, args.steps,
-        target_scale=args.cfg_text, recon_scales=dyn_scales, # Dynamic recon scales
+    z_polaris_res = generate_spatially_aware(
+        pipe, z_inv_polaris, tgt_emb, controller, args.steps,
+        target_scale=args.cfg_text, recon_scales=polaris_scales, # POLARIS recon scales
         edit_indices=edit_indices, preserve_indices=preserve_indices, mask_pow=args.mask_pow
     )
     deregister()
-    img_dynamic = latent2img(pipe, z_dyn_res)
-    img_dynamic.save(os.path.join(args.output_dir, "result_dynamic.png"))
+    img_polaris = latent2img(pipe, z_polaris_res)
+    img_polaris.save(os.path.join(args.output_dir, "result_polaris.png"))
 
     # Visualization
     fig, axs = plt.subplots(1, 3, figsize=(15, 5))
     axs[0].imshow(raw_img); axs[0].set_title("Original")
     axs[1].imshow(img_fixed); axs[1].set_title("Fixed Inversion")
-    axs[2].imshow(img_dynamic); axs[2].set_title("Dynamic Inversion")
+    axs[2].imshow(img_polaris); axs[2].set_title("POLARIS Inversion")
     for ax in axs: ax.axis("off")
     plt.tight_layout()
     plt.savefig(os.path.join(args.output_dir, "comparison.png"))

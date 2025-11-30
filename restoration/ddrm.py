@@ -17,7 +17,7 @@ from skimage.metrics import structural_similarity as ssim
 # Configuration & Arguments
 # ======================================================================================
 def parse_args():
-    parser = argparse.ArgumentParser(description="DS-DDRM Image Restoration")
+    parser = argparse.ArgumentParser(description="POLARIS-DDRM Image Restoration")
     parser.add_argument("--model_path", type=str, default="CompVis/stable-diffusion-v1-4")
     parser.add_argument("--image_path", type=str, required=True, help="Path to input image")
     parser.add_argument("--output_dir", type=str, default="./results")
@@ -139,7 +139,7 @@ def get_degradation_operators(task, latent_res, init_z):
 # ======================================================================================
 # Core Algorithms
 # ======================================================================================
-def ddim_inversion_dynamic(latents, text_emb):
+def ddim_inversion_polaris(latents, text_emb):
     inv_sched = DDIMInverseScheduler.from_config(pipe.scheduler.config)
     inv_sched.set_timesteps(args.steps)
     z = latents.clone()
@@ -147,7 +147,7 @@ def ddim_inversion_dynamic(latents, text_emb):
     prev_ep, prev_ec = None, None
     scales = []
 
-    for i, t in enumerate(tqdm(inv_sched.timesteps, desc="Dynamic Inversion", leave=False)):
+    for i, t in enumerate(tqdm(inv_sched.timesteps, desc="POLARIS Inversion", leave=False)):
         noise_pred = pipe.unet(torch.cat([z, z]), t, encoder_hidden_states=torch.cat([uncond, text_emb])).sample
         ep, ec = noise_pred.chunk(2)
         
@@ -181,13 +181,13 @@ def ddim_reconstruct(latents, text_emb, scales, y_target, H_funcs, eta=0.1):
     z = latents.clone()
     uncond = get_text_emb("")
     H, H_pinv = H_funcs
-    dynamic = isinstance(scales, list)
+    is_polaris_mode = isinstance(scales, list)
 
     for i, t in enumerate(tqdm(pipe.scheduler.timesteps, desc="Reconstruction", leave=False)):
         noise_pred = pipe.unet(torch.cat([z, z]), t, encoder_hidden_states=torch.cat([uncond, text_emb])).sample
         nu, nc = noise_pred.chunk(2)
         
-        s = scales[i] if dynamic else scales
+        s = scales[i] if is_polaris_mode else scales
         guided_noise = nu + s * (nc - nu)
         
         pred_x0 = pipe.scheduler.step(guided_noise, t, z).pred_original_sample
@@ -201,27 +201,8 @@ def ddim_reconstruct(latents, text_emb, scales, y_target, H_funcs, eta=0.1):
         ti = t.item() if torch.is_tensor(t) else int(t)
         alpha_prod = pipe.scheduler.alphas_cumprod[ti].to(z.device)
         beta_prod = (1 - alpha_prod)
-        z = (z - alpha_prod.sqrt() * pred_x0_corr) / beta_prod.sqrt()
-        z = pipe.scheduler.step(z, t, z).prev_sample # Dummy step to update internal state if needed, but we calc z manually above usually, adhering to DDRM equation. 
-        # Standard Scheduler Step usage with replaced x0:
-        # Re-calculating next z based on corrected x0 is cleaner:
-        z = alpha_prod.sqrt() * pred_x0_corr + beta_prod.sqrt() * guided_noise # Simplified approx or standard scheduler usage
-        # Use Standard scheduler step for consistency with Diffusers API if possible, but DDRM specific update is often manual. 
-        # Reverting to strict Diffusers usage with corrected x0:
-        out = pipe.scheduler.step(guided_noise, t, z)
-        # We manually inject the corrected x0 into the next sample calculation if the scheduler supported it, 
-        # but here we approximate by using the noise computed from the model but steering x0.
-        # Let's stick to the user's original logic logic for fidelity:
-        z = (z - alpha_prod.sqrt() * pred_x0_corr) / beta_prod.sqrt() # This is actually extracting noise
-        # To be safe and clean, let's just use the scheduler's output but modify it? 
-        # No, User logic was: z_next = alpha_next * x0_corr + sigma_next * noise.
-        # Let's keep User's exact logic logic flow simplified:
-        z = pipe.scheduler.step(guided_noise, t, z).prev_sample 
-        # Note: Ideally DDRM modifies the step integration. The user code did:
-        # corrected_noise = (z - alpha_sqrt * x0_corr) / beta_sqrt 
-        # z = scheduler.step(corrected_noise, t, z)
-        # We will restore that exact behavior below for correctness.
         
+        # Standard Scheduler Step usage with replaced x0 logic:
         corrected_noise = (z - alpha_prod.sqrt() * pred_x0_corr) / beta_prod.sqrt()
         z = pipe.scheduler.step(corrected_noise, t, z).prev_sample
 
@@ -268,13 +249,13 @@ def main():
         degraded_img = latent2img(degraded_z)
         degraded_img.save(os.path.join(args.output_dir, f"{task.lower()}_1_degraded.png"))
 
-        # 2. DS-DDRM (Ours)
-        print("Running DS-DDRM...")
-        z_inv_ds, scales_ds = ddim_inversion_dynamic(init_z, src_emb)
-        z_rec_ds = ddim_reconstruct(z_inv_ds, src_emb, scales_ds, y_target, (H, H_pinv), eta=0.1)
-        img_ds = latent2img(z_rec_ds)
-        img_ds_path = os.path.join(args.output_dir, f"{task.lower()}_2_DS-DDRM.png")
-        img_ds.save(img_ds_path)
+        # 2. POLARIS-DDRM (Ours)
+        print("Running POLARIS-DDRM...")
+        z_inv_polaris, scales_polaris = ddim_inversion_polaris(init_z, src_emb)
+        z_rec_polaris = ddim_reconstruct(z_inv_polaris, src_emb, scales_polaris, y_target, (H, H_pinv), eta=0.1)
+        img_polaris = latent2img(z_rec_polaris)
+        img_polaris_path = os.path.join(args.output_dir, f"{task.lower()}_2_POLARIS-DDRM.png")
+        img_polaris.save(img_polaris_path)
 
         # 3. Standard DDRM (Baseline)
         print("Running Standard DDRM...")
@@ -286,11 +267,11 @@ def main():
 
         # 4. Metrics
         print(f"--- Metrics ({task}) ---")
-        m_ds = calculate_metrics(os.path.join(args.output_dir, "0_original.png"), img_ds_path, lpips_fn)
+        m_polaris = calculate_metrics(os.path.join(args.output_dir, "0_original.png"), img_polaris_path, lpips_fn)
         m_std = calculate_metrics(os.path.join(args.output_dir, "0_original.png"), img_std_path, lpips_fn)
         
-        print(f"DS-DDRM : {m_ds}")
-        print(f"Std-DDRM: {m_std}")
+        print(f"POLARIS-DDRM: {m_polaris}")
+        print(f"Std-DDRM    : {m_std}")
 
     print(f"\nAll results saved to {args.output_dir}")
 

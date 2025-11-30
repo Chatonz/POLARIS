@@ -36,7 +36,7 @@ python editing.py \
   --edit_phrase "word_to_edit"
 ```
 
-### Reconstruction Comparison
+### Image Reconstruction
 ```bash
 python reconstruction.py --image_path <path> --prompt "image description"
 ```
@@ -86,7 +86,5 @@ python restoration.py --image_path blurred_cat.jpg
 - Python 3.8+
 - ~7GB VRAM for inference
 
-## License
 
-MIT
 
