@@ -180,16 +180,6 @@ POLARIS/
 - Default model: `runwayml/stable-diffusion-v1-5` or `CompVis/stable-diffusion-v1-4`
 
 
-## Citation
-
-If you use POLARIS in your research, please cite:
-```bibtex
-@article{polaris2024,
-  title={POLARIS: Projection-Orthogonal Least Squares for Robust and Adaptive Inversion},
-  author={[Your Name]},
-  year={2024}
-}
-```
 
 ## Contact
 
