@@ -1,0 +1,23 @@
+# POLARIS Image Editing & Restoration
+# Extracted from environment.yml - required libraries only
+
+# PyTorch & Vision
+torch==2.5.1
+torchvision==0.20.1
+
+# Diffusion Models & Transformers
+diffusers==0.32.2
+transformers==4.57.1
+
+# Numerical & Image Processing
+numpy==2.2.6
+Pillow==11.3.0
+scikit-image==0.25.2
+scipy==1.15.2
+
+# Visualization & Progress
+matplotlib==3.10.1
+tqdm==4.67.1
+
+# Perceptual Metrics
+lpips==0.1.4
