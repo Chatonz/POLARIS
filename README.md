@@ -1,6 +1,16 @@
 # POLARIS
 
-Spatially-aware image editing and restoration using stable diffusion with dynamic guidance scaling.
+**Projection-Orthogonal Least Squares for Robust and Adaptive Inversion**
+
+## About
+
+POLARIS addresses a critical issue in diffusion-based image editing and restoration: the **noise approximation error** that accumulates during the DDIM inversion process. 
+
+Traditional inversion methods approximate noise at step $t$ using predictions from step $t-1$, causing severe error accumulation. POLARIS reformulates inversion as an **error-origin problem** rather than an error-compensation problem.
+
+**Key Innovation:** Instead of optimizing embeddings or latent codes to offset drift, POLARIS treats the guidance scale $\omega$ as a **step-wise variable** and derives a mathematically grounded formula to minimize inversion error at each step. This improves latent quality with **minimal code changes** and negligible performance overhead.
+
+---
 
 ## Features
 
